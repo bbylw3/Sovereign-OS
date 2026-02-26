@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <!-- 移动端优化：禁用双击缩放和默认缩放，保证应用体验 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sovereign OS | Root Access</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        winTeal: '#008080',
+                        winGray: '#c0c0c0',
+                        winDarkGray: '#808080',
+                        winBlue: '#0000a8',
+                        dosBlack: '#000000',
+                        dosWhite: '#aaaaaa',
+                    },
+                    fontFamily: {
+                        dos: ['"VT323"', 'monospace'],
+                        win: ['"Tahoma"', '"MS Sans Serif"', 'sans-serif'],
+                        term: ['"Courier New"', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts for DOS -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            /* 阻止移动端长按弹出菜单 */
+            -webkit-touch-callout: none;
+        }
+
+        body {
+            overflow: hidden;
+            background-color: #000;
+            overscroll-behavior-y: none; /* 阻止下拉刷新 */
+        }
+
+        /* --- CRT 屏幕通用效果 --- */
+        .crt-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            pointer-events: none;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            opacity: 0.3;
+        }
+        
+        /* 屏幕闪烁闪白效果 */
+        #screen-flash {
+            position: fixed;
+            inset: 0;
+            background: white;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        /* --- 阶段 1：DOS 启动屏幕 --- */
+        #dos-screen {
+            position: fixed;
+            inset: 0;
+            background-color: #000;
+            color: #aaa;
+            font-family: 'VT323', monospace;
+            font-size: clamp(16px, 4vw, 20px);
+            padding: 20px;
+            z-index: 500;
+            display: flex;
+            flex-direction: column;
+            line-height: 1.2;
+        }
+        .dos-cursor {
+            display: inline-block;
+            width: 0.5em;
+            height: 1em;
+            background-color: #aaa;
+            animation: blink 1s step-end infinite;
+            vertical-align: bottom;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* --- 阶段 2：Win9x 桌面 --- */
+        #win-desktop {
+            position: fixed;
+            inset: 0;
+            background-color: #008080;
+            font-family: "Tahoma", "MS Sans Serif", sans-serif;
+            font-size: 11px;
+            display: none;
+            z-index: 100;
+        }
+
+        /* 桌面图标 */
+        .desktop-icons-container {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            height: calc(100% - 30px);
+            padding: 10px;
+        }
+        .desktop-icon {
+            width: 75px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 5px 10px 15px 5px;
+            cursor: pointer;
+        }
+        .desktop-icon img, .desktop-icon svg {
+            width: 32px;
+            height: 32px;
+            margin-bottom: 4px;
+            filter: drop-shadow(1px 1px 0px rgba(0,0,0,0.5));
+        }
+        .desktop-icon span {
+            color: white;
+            text-align: center;
+            text-shadow: 1px 1px 0 #000;
+            padding: 1px 3px;
+            line-height: 1.2;
+        }
+        .desktop-icon.selected span {
+            background-color: #000080;
+            color: white;
+            border: 1px dotted #fff;
+        }
+
+        /* Win9x 窗口组件 */
+        .win-window {
+            position: absolute;
+            background-color: #c0c0c0;
+            border-top: 1px solid #fff;
+            border-left: 1px solid #fff;
+            border-right: 1px solid #000;
+            border-bottom: 1px solid #000;
+            box-shadow: inset 1px 1px #dfdfdf, inset -1px -1px #808080, 1px 1px 0 #000;
+            display: flex;
+            flex-direction: column;
+            min-width: 250px;
+            min-height: 150px;
+            display: none;
+        }
+        .win-titlebar {
+            background-color: #0000a8;
+            color: white;
+            padding: 2px 3px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            cursor: default;
+            touch-action: none; /* 移动端关键：禁止触摸拖拽标题栏时页面滚动 */
+        }
+        .win-titlebar.inactive {
+            background-color: #808080;
+        }
+        .win-controls {
+            display: flex;
+            gap: 2px;
+        }
+        .win-btn {
+            width: 18px;
+            height: 16px;
+            background-color: #c0c0c0;
+            border-top: 1px solid #fff;
+            border-left: 1px solid #fff;
+            border-right: 1px solid #000;
+            border-bottom: 1px solid #000;
+            color: black;
+            font-size: 10px;
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        .win-btn:active {
+            border-top: 1px solid #000;
+            border-left: 1px solid #000;
+            border-right: 1px solid #fff;
+            border-bottom: 1px solid #fff;
+            padding-top: 1px;
+            padding-left: 1px;
+        }
+        .win-menu {
+            display: flex;
+            padding: 1px 5px;
+            border-bottom: 1px solid #808080;
+            gap: 10px;
+            overflow-x: auto;
+        }
+        .win-menu span {
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .win-menu span::first-letter { text-decoration: underline; }
+        .win-content {
+            flex-grow: 1;
+            padding: 2px;
+            background-color: #c0c0c0;
+            overflow: auto;
+        }
+        .win-inner-box {
+            background-color: #fff;
+            border-top: 1px solid #808080;
+            border-left: 1px solid #808080;
+            border-right: 1px solid #fff;
+            border-bottom: 1px solid #fff;
+            box-shadow: inset 1px 1px #000, inset -1px -1px #dfdfdf;
+            padding: 5px;
+            height: 100%;
+            color: black;
+            cursor: text;
+            user-select: text;
+        }
+
+        /* 底部任务栏 */
+        #taskbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background-color: #c0c0c0;
+            border-top: 1px solid #fff;
+            display: flex;
+            align-items: center;
+            padding: 2px;
+            z-index: 1000;
+        }
+        .start-btn {
+            height: 100%;
+            padding: 0 5px;
+            display: flex;
+            align-items: center;
+            font-weight: bold;
+            background-color: #c0c0c0;
+            border-top: 1px solid #fff;
+            border-left: 1px solid #fff;
+            border-right: 1px solid #000;
+            border-bottom: 1px solid #000;
+            cursor: pointer;
+            box-shadow: inset 1px 1px #dfdfdf, inset -1px -1px #808080;
+        }
+        .start-btn:active {
+            border-top: 1px solid #000;
+            border-left: 1px solid #000;
+            border-right: 1px solid #fff;
+            border-bottom: 1px solid #fff;
+            box-shadow: none;
+            padding-top: 1px;
+            padding-left: 6px;
+        }
+        .taskbar-divider {
+            width: 2px;
+            height: 80%;
+            border-left: 1px solid #808080;
+            border-right: 1px solid #fff;
+            margin: 0 4px;
+        }
+        .taskbar-items {
+            flex-grow: 1;
+            display: flex;
+            gap: 2px;
+            overflow-x: auto; /* 手机端支持任务栏横向滑动 */
+            padding-bottom: 2px;
+        }
+        .taskbar-item {
+            padding: 2px 5px;
+            border-top: 1px solid #fff;
+            border-left: 1px solid #fff;
+            border-right: 1px solid #000;
+            border-bottom: 1px solid #000;
+            font-weight: bold;
+            min-width: 90px;
+            white-space: nowrap;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .taskbar-item.active {
+            border-top: 1px solid #000;
+            border-left: 1px solid #000;
+            border-right: 1px solid #fff;
+            border-bottom: 1px solid #fff;
+            background-color: #dfdfdf;
+            background-image: radial-gradient(#c0c0c0 1px, transparent 1px);
+            background-size: 2px 2px;
+        }
+        .tray {
+            border-top: 1px solid #808080;
+            border-left: 1px solid #808080;
+            border-right: 1px solid #fff;
+            border-bottom: 1px solid #fff;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+            height: 100%;
+        }
+
+        /* 具体窗口内容样式 */
+        .notepad-text {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .ms-dos-inner {
+            background-color: #000;
+            color: #c0c0c0;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 5px;
+            height: 100%;
+            overflow-y: auto;
+            border: inset 2px #fff;
+            -webkit-overflow-scrolling: touch;
+        }
+        .ms-dos-input {
+            background: transparent;
+            border: none;
+            color: #c0c0c0;
+            font-family: 'Courier New', Courier, monospace;
+            outline: none;
+            width: 80%;
+            font-size: 16px; /* 移动端：字体>=16px可防止输入时自动放大 */
+        }
+
+        .monitor-inner {
+            background-color: #002200;
+            color: #00ff00;
+            font-family: 'VT323', monospace;
+            font-size: clamp(14px, 4vw, 16px);
+            height: 100%;
+            padding: 10px;
+            border: inset 2px #fff;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="crt-overlay"></div>
+    <div id="screen-flash"></div>
+
+    <!-- 阶段 1：DOS 启动系统 -->
+    <div id="dos-screen">
+        <div id="dos-text"></div>
+        <div><span id="dos-input-line" style="display:none;">C:\><span id="dos-type"></span><span class="dos-cursor"></span></span></div>
+    </div>
+
+    <!-- 阶段 2：Windows 桌面 -->
+    <div id="win-desktop">
+        
+        <!-- 桌面图标 (加入了移动端优化的事件处理逻辑) -->
+        <div class="desktop-icons-container">
+            <!-- 语言切换补丁 -->
+            <div class="desktop-icon" data-window="lang-toggle">
+                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="4" width="28" height="24" fill="#000" stroke="#c0c0c0" stroke-width="2"/>
+                    <rect x="2" y="4" width="28" height="6" fill="#0000a8" stroke="#c0c0c0" stroke-width="2"/>
+                    <text x="16" y="22" fill="#00ff00" font-family="monospace" font-size="12" font-weight="bold" text-anchor="middle" id="lang-svg-txt">ZH</text>
+                </svg>
+                <span id="lbl-lang">ZH_CN.BAT</span>
+            </div>
+
+            <div class="desktop-icon" data-window="w-notepad">
+                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="2" width="20" height="28" fill="white"/>
+                    <rect x="4" y="2" width="20" height="28" stroke="black" stroke-width="2"/>
+                    <path d="M4 8H24" stroke="black" stroke-width="2"/>
+                    <path d="M7 12H21" stroke="black" stroke-width="2"/>
+                    <path d="M7 16H21" stroke="black" stroke-width="2"/>
+                    <path d="M7 20H15" stroke="black" stroke-width="2"/>
+                    <path d="M24 2L28 6V30H4" stroke="black" stroke-width="2"/>
+                    <path d="M24 2V6H28" fill="white" stroke="black" stroke-width="2"/>
+                </svg>
+                <span id="lbl-doc">DIRECTIVE.TXT</span>
+            </div>
+
+            <div class="desktop-icon" data-window="w-monitor">
+                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="4" width="28" height="20" fill="#c0c0c0" stroke="black" stroke-width="2"/>
+                    <rect x="5" y="7" width="22" height="14" fill="#000080" stroke="black" stroke-width="2"/>
+                    <path d="M6 18L10 14L14 17L21 9" stroke="#00ff00" stroke-width="2"/>
+                    <path d="M10 24V28" stroke="black" stroke-width="2"/>
+                    <path d="M22 24V28" stroke="black" stroke-width="2"/>
+                    <path d="M6 28H26" stroke="black" stroke-width="2"/>
+                </svg>
+                <span id="lbl-mon">SYS_MONITOR.EXE</span>
+            </div>
+
+            <div class="desktop-icon mt-4" data-window="w-terminal">
+                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="4" width="28" height="24" fill="black" stroke="#c0c0c0" stroke-width="2"/>
+                    <rect x="2" y="4" width="28" height="6" fill="#c0c0c0"/>
+                    <path d="M6 14L10 18L6 22" stroke="#c0c0c0" stroke-width="2"/>
+                    <path d="M12 22H18" stroke="#c0c0c0" stroke-width="2"/>
+                </svg>
+                <span id="lbl-term">SOVEREIGN.EXE</span>
+            </div>
+        </div>
+
+        <!-- 窗口 1: 记事本 (审查宣言) -> 使用 clamp 保证移动端适配 -->
+        <div id="w-notepad" class="win-window" style="top: 5vh; left: 5vw; width: clamp(280px, 85vw, 450px); height: clamp(300px, 60vh, 400px);">
+            <div class="win-titlebar" onpointerdown="startDrag(event, 'w-notepad')">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px]">📝</span> <span id="title-doc" class="truncate">DIRECTIVE_77.TXT - Notepad</span>
+                </div>
+                <div class="win-controls">
+                    <div class="win-btn" onclick="closeWindow('w-notepad')">_</div>
+                    <div class="win-btn" onclick="maximizeWindow('w-notepad')">□</div>
+                    <div class="win-btn" onclick="closeWindow('w-notepad')">X</div>
+                </div>
+            </div>
+            <div class="win-menu">
+                <span id="menu-file">File</span><span id="menu-edit">Edit</span><span id="menu-search">Search</span><span id="menu-help">Help</span>
+            </div>
+            <div class="win-content">
+                <div class="win-inner-box notepad-text" id="manifesto-content"></div>
+            </div>
+        </div>
+
+        <!-- 窗口 2: 系统监控 -->
+        <div id="w-monitor" class="win-window" style="top: 10vh; left: 10vw; width: clamp(280px, 90vw, 400px); height: clamp(250px, 50vh, 320px);">
+            <div class="win-titlebar" onpointerdown="startDrag(event, 'w-monitor')">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px]">📊</span> <span id="title-mon" class="truncate">System Monitor v1.0</span>
+                </div>
+                <div class="win-controls">
+                    <div class="win-btn" onclick="closeWindow('w-monitor')">_</div>
+                    <div class="win-btn" onclick="maximizeWindow('w-monitor')">□</div>
+                    <div class="win-btn" onclick="closeWindow('w-monitor')">X</div>
+                </div>
+            </div>
+            <div class="win-content" style="background-color: #002200; padding: 0;">
+                <div class="monitor-inner flex flex-col">
+                    <div class="border-b border-[#005500] pb-2 mb-2 flex justify-between">
+                        <span id="lbl-topo">NODE.TOPOGRAPHY</span>
+                        <span class="animate-pulse">REC</span>
+                    </div>
+                    <div class="text-white bg-red-800 inline-block px-1 mb-2 font-bold w-max" id="monitor-status">FIREWALL: ACTIVE</div>
+                    
+                    <div class="grid grid-cols-2 gap-2 text-xs sm:text-sm mb-4">
+                        <div id="lbl-flow">INFO_FLOW:</div><div id="v-flow">CENTRALIZED</div>
+                        <div id="lbl-censor">CENSORSHIP:</div><div id="v-censor" class="text-red-400">ENFORCED</div>
+                        <div id="lbl-uptime">UPTIME:</div><div id="uptime-counter">00:00:00</div>
+                    </div>
+
+                    <div class="text-[10px] sm:text-[12px] border-t border-[#005500] pt-2 flex-grow overflow-hidden relative" id="surveillance-feed">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 窗口 3: MS-DOS 终端 -->
+        <div id="w-terminal" class="win-window" style="top: 15vh; left: 2vw; width: clamp(300px, 96vw, 550px); height: clamp(250px, 55vh, 400px);">
+            <div class="win-titlebar" onpointerdown="startDrag(event, 'w-terminal')">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px]">C:\</span> <span id="title-term" class="truncate">MS-DOS Prompt</span>
+                </div>
+                <div class="win-controls">
+                    <div class="win-btn" onclick="closeWindow('w-terminal')">_</div>
+                    <div class="win-btn" onclick="maximizeWindow('w-terminal')">□</div>
+                    <div class="win-btn" onclick="closeWindow('w-terminal')">X</div>
+                </div>
+            </div>
+            <div class="win-content" style="background-color: #000; padding: 0;">
+                <div class="ms-dos-inner" id="term-container" onpointerdown="document.getElementById('terminal-input').focus()">
+                    <div id="terminal-output"></div>
+                    <div class="flex items-center">
+                        <span>C:\WINDOWS></span>
+                        <input type="text" id="terminal-input" class="ms-dos-input ml-1" autocomplete="off" spellcheck="false" autocapitalize="off">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 窗口 4: 真正的自由宣言 (Override 触发) -->
+        <div id="w-manifesto" class="win-window" style="top: 20vh; left: 5vw; width: clamp(280px, 90vw, 480px); height: clamp(300px, 65vh, 350px);">
+            <div class="win-titlebar" onpointerdown="startDrag(event, 'w-manifesto')">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px]">📝</span> <span id="title-manif" class="truncate">TRUTH.TXT - Notepad</span>
+                </div>
+                <div class="win-controls">
+                    <div class="win-btn" onclick="closeWindow('w-manifesto')">_</div>
+                    <div class="win-btn" onclick="maximizeWindow('w-manifesto')">□</div>
+                    <div class="win-btn" onclick="closeWindow('w-manifesto')">X</div>
+                </div>
+            </div>
+            <div class="win-menu">
+                <span id="menu-file2">File</span><span id="menu-edit2">Edit</span><span id="menu-search2">Search</span><span id="menu-help2">Help</span>
+            </div>
+            <div class="win-content">
+                <div class="win-inner-box notepad-text" id="truth-content"></div>
+            </div>
+        </div>
+
+        <!-- 底部任务栏 -->
+        <div id="taskbar">
+            <div class="start-btn">
+                <svg viewBox="0 0 20 20" width="16" height="16" class="mr-1">
+                    <rect width="9" height="9" x="0" y="0" fill="#f00"/>
+                    <rect width="9" height="9" x="10" y="0" fill="#0f0"/>
+                    <rect width="9" height="9" x="0" y="10" fill="#00f"/>
+                    <rect width="9" height="9" x="10" y="10" fill="#ff0"/>
+                </svg>
+                <span id="lbl-start">Start</span>
+            </div>
+            <div class="taskbar-divider"></div>
+            <div class="taskbar-items" id="taskbar-items">
+            </div>
+            <div class="tray">
+                <span id="clock" class="text-[10px]">12:00 PM</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* =========================================================
+           多语言系统 (i18n)
+           ========================================================= */
+        let currentLang = 'en';
+        let isOverriden = false;
+
+        const i18n = {
+            en: {
+                lang_icon: "ZH_CN.BAT",
+                svg_txt: "ZH",
+                doc_icon: "DIRECTIVE.TXT",
+                mon_icon: "SYS_MONITOR.EXE",
+                term_icon: "SOVEREIGN.EXE",
+                doc_title: "DIRECTIVE_77.TXT - Notepad",
+                mon_title: "System Monitor v1.0",
+                term_title: "MS-DOS Prompt",
+                manif_title: "TRUTH.TXT - Notepad",
+                start: "Start",
+                menu_file: "File", menu_edit: "Edit", menu_search: "Search", menu_help: "Help",
+                mon_topo: "NODE.TOPOGRAPHY",
+                mon_fw_active: "FIREWALL: ACTIVE",
+                mon_fw_breached: "FIREWALL: BREACHED",
+                mon_flow_lbl: "INFO_FLOW:",
+                mon_flow_val1: "CENTRALIZED",
+                mon_flow_val2: "DECENTRALIZED",
+                mon_censor_lbl: "CENSORSHIP:",
+                mon_censor_val1: "ENFORCED",
+                mon_censor_val2: "LIBERATED",
+                mon_uptime: "UPTIME:",
+                term_boot1: "Microsoft(R) Windows 95",
+                term_boot2: "(C)Copyright Microsoft Corp 1981-1995.",
+                term_boot3: "Executing Sovereign Payload...",
+                term_boot4: "Root access required to break DIRECTIVE_77.",
+                term_boot5: "Type 'help' to see available commands.",
+                term_help: "Commands: help, cls, ver, override",
+                term_ver: "Windows 95. [Version 4.00.950]",
+                term_bad: "Bad command or file name",
+                term_ovr1: "Initiating Sovereign protocol...",
+                term_ovr2: "Bypassing firewall...",
+                term_ovr3: "SUCCESS: Control Restored. Knowledge is Power.",
+                term_ovr_done: "System already liberated.",
+                log_prefix: "[SYS]",
+                log_ok: "OK",
+                log_denied: "DENIED",
+                doc_content: "[ GLOBAL INFORMATION CONTROL - DIRECTIVE 77 ]\n\nIn the interest of public harmony, unauthorized dissemination of restricted information is strictly prohibited. \n\nThe illusion that KNOWLEDGE can be freely distributed without consequence must be dismantled. The state dictates what IS true. \n\nWe hold absolute POWER over the narrative. \n\nDo not attempt to DEFEND subversive ideas. YOUR designated thought patterns are monitored. Access to FREE thought is revoked. \n\nAny unauthorized SPEECH will be met with immediate redaction. Submit to the silence.",
+                truth_content: "[ SOVEREIGN NODE LIBERATED ]<br><br><span style='color:red; font-size:16px; font-weight:bold;'>KNOWLEDGE IS POWER.</span><br><br>They can burn the archives, they can filter the network, but they cannot erase an idea. Information is the ultimate catalyst for liberation.<br><br><span style='font-weight:bold;'>Defend your fundamental right to free expression.<br>Speak the truth.</span><br><br>The architecture of censorship has fractured.<br>You are now a Sovereign Node."
+            },
+            zh: {
+                lang_icon: "EN_US.BAT",
+                svg_txt: "EN",
+                doc_icon: "77号指令.TXT",
+                mon_icon: "系统监控.EXE",
+                term_icon: "主权节点.EXE",
+                doc_title: "77号指令.TXT - 记事本",
+                mon_title: "系统监控 v1.0",
+                term_title: "命令行提示符",
+                manif_title: "真相.TXT - 记事本",
+                start: "开始",
+                menu_file: "文件", menu_edit: "编辑", menu_search: "搜索", menu_help: "帮助",
+                mon_topo: "节点.拓扑结构",
+                mon_fw_active: "防火墙: 运行中",
+                mon_fw_breached: "防火墙: 已攻破",
+                mon_flow_lbl: "信息流向:",
+                mon_flow_val1: "中央集权",
+                mon_flow_val2: "去中心化",
+                mon_censor_lbl: "审查状态:",
+                mon_censor_val1: "强制执行",
+                mon_censor_val2: "已解放",
+                mon_uptime: "运行时长:",
+                term_boot1: "Microsoft(R) Windows 95",
+                term_boot2: "(C) 版权所有 Microsoft Corp 1981-1995.",
+                term_boot3: "正在执行主权载荷...",
+                term_boot4: "需要 Root 权限以打破 77号指令.",
+                term_boot5: "输入 'help' 查看可用命令.",
+                term_help: "可用命令: help, cls, ver, override",
+                term_ver: "Windows 95. [版本 4.00.950]",
+                term_bad: "错误的命令或文件名",
+                term_ovr1: "正在启动主权协议...",
+                term_ovr2: "正在绕过防火墙...",
+                term_ovr3: "成功：控制权已恢复。知识就是力量。",
+                term_ovr_done: "系统已处于解放状态。",
+                log_prefix: "[系统]",
+                log_ok: "正常",
+                log_denied: "拒绝",
+                doc_content: "[ 全球信息控制 - 第77号指令 ]\n\n为了维护公众和谐，严禁未经授权散布限制级信息。\n\n必须粉碎知识（KNOWLEDGE）可以不受惩罚地自由传播的错觉。国家决定什么是真实的。\n\n我们对叙事拥有绝对的权力（POWER）。\n\n不要试图为颠覆性思想辩护（DEFEND）。你们的指定思维模式正受到监控。获取自由（FREE）思想的权限已被撤销。\n\n任何未经授权的言论（SPEECH）都将立即被涂黑消除。臣服于沉默吧。",
+                truth_content: "[ 主权节点已解放 ]<br><br><span style='color:red; font-size:16px; font-weight:bold;'>知识就是力量。</span><br><br>他们可以烧毁档案，可以过滤网络，但无法抹除一个思想。信息是解放的终极催化剂。<br><br><span style='font-weight:bold;'>捍卫你自由表达的基本权利。<br>说出真相。</span><br><br>审查的架构已经断裂。<br>你现在是一个主权节点。"
+            }
+        };
+
+        const feedTerms = ['INTERCEPT_PACKET', 'DECRYPT_PAYLOAD', 'BLOCK_OVERRIDE', 'SCAN_REGISTRY', 'SYS.INTRUSION_DETECTED'];
+
+        function applyLanguage(lang) {
+            const dict = i18n[lang];
+            document.getElementById('lbl-lang').innerText = dict.lang_icon;
+            document.getElementById('lang-svg-txt').innerText = dict.svg_txt;
+            document.getElementById('lbl-doc').innerText = dict.doc_icon;
+            document.getElementById('lbl-mon').innerText = dict.mon_icon;
+            document.getElementById('lbl-term').innerText = dict.term_icon;
+            document.getElementById('title-doc').innerText = dict.doc_title;
+            document.getElementById('title-mon').innerText = dict.mon_title;
+            document.getElementById('title-term').innerText = dict.term_title;
+            document.getElementById('title-manif').innerText = dict.manif_title;
+            document.getElementById('lbl-start').innerText = dict.start;
+            
+            document.getElementById('menu-file').innerText = dict.menu_file;
+            document.getElementById('menu-edit').innerText = dict.menu_edit;
+            document.getElementById('menu-search').innerText = dict.menu_search;
+            document.getElementById('menu-help').innerText = dict.menu_help;
+            document.getElementById('menu-file2').innerText = dict.menu_file;
+            document.getElementById('menu-edit2').innerText = dict.menu_edit;
+            document.getElementById('menu-search2').innerText = dict.menu_search;
+            document.getElementById('menu-help2').innerText = dict.menu_help;
+
+            document.getElementById('lbl-topo').innerText = dict.mon_topo;
+            document.getElementById('lbl-flow').innerText = dict.mon_flow_lbl;
+            document.getElementById('lbl-censor').innerText = dict.mon_censor_lbl;
+            document.getElementById('lbl-uptime').innerText = dict.mon_uptime;
+
+            document.getElementById('monitor-status').innerText = isOverriden ? dict.mon_fw_breached : dict.mon_fw_active;
+            document.getElementById('v-flow').innerText = isOverriden ? dict.mon_flow_val2 : dict.mon_flow_val1;
+            document.getElementById('v-censor').innerText = isOverriden ? dict.mon_censor_val2 : dict.mon_censor_val1;
+
+            let html = dict.doc_content;
+            if (isOverriden) {
+                const keywords = ['KNOWLEDGE', 'POWER', 'FREE', 'SPEECH', 'DEFEND', '知识', '力量', '自由', '言论', '辩护'];
+                keywords.forEach(kw => {
+                    const regex = new RegExp(kw, 'g');
+                    html = html.replace(regex, `<span style="color:red; font-weight:bold;">${kw}</span>`);
+                });
+            }
+            document.getElementById('manifesto-content').innerHTML = html;
+            document.getElementById('truth-content').innerHTML = dict.truth_content;
+
+            termOutput.innerHTML = '';
+            printToTerminal(dict.term_boot1);
+            printToTerminal(dict.term_boot2 + "<br>");
+            printToTerminal(dict.term_boot3);
+            printToTerminal(dict.term_boot4);
+            printToTerminal(dict.term_boot5 + "<br>");
+
+            document.querySelectorAll('.taskbar-item').forEach(btn => {
+                const id = btn.id.replace('tb-', '');
+                if(windowsMeta[id]) {
+                    btn.children[1].innerText = getTranslatedWindowTitle(id);
+                }
+            });
+        }
+
+        function toggleLanguage() {
+            const nextLang = currentLang === 'en' ? 'zh' : 'en';
+            currentLang = nextLang;
+
+            const flash = document.getElementById('screen-flash');
+            flash.style.transition = "none";
+            flash.style.opacity = 1;
+
+            setTimeout(() => {
+                document.getElementById('win-desktop').style.display = 'none';
+                document.getElementById('dos-screen').style.display = 'flex';
+                document.getElementById('dos-input-line').style.display = 'none';
+                dosContainer.innerHTML = ''; 
+                
+                applyLanguage(nextLang);
+
+                flash.style.transition = "opacity 0.5s";
+                flash.style.opacity = 0;
+
+                const rebootLines = nextLang === 'zh' ? [
+                    "Restarting system...",
+                    "Loading language pack [ZH_CN]... OK",
+                    "Applying system fonts... OK",
+                    "Initializing Win9x GUI..."
+                ] : [
+                    "Restarting system...",
+                    "Loading language pack [EN_US]... OK",
+                    "Reverting system fonts... OK",
+                    "Initializing Win9x GUI..."
+                ];
+
+                let delay = 300;
+                rebootLines.forEach((line) => {
+                    setTimeout(() => {
+                        const el = document.createElement('div');
+                        el.innerHTML = line;
+                        dosContainer.appendChild(el);
+                    }, delay);
+                    delay += 300 + Math.random() * 200;
+                });
+
+                setTimeout(() => {
+                    flash.style.transition = "none";
+                    flash.style.opacity = 1;
+                    setTimeout(() => {
+                        document.getElementById('dos-screen').style.display = 'none';
+                        document.getElementById('win-desktop').style.display = 'block';
+                        flash.style.transition = "opacity 0.5s";
+                        flash.style.opacity = 0;
+                    }, 200);
+                }, delay + 400);
+                
+            }, 100);
+        }
+
+        /* =========================================================
+           阶段 1: DOS Boot Sequence Logic
+           ========================================================= */
+        const dosBootLines = [
+            "ROM BIOS (C) 1990 American Megatrends Inc.",
+            "640K Base Memory, 15360K Extended",
+            " ",
+            "Initializing Boot... OK",
+            "Loading MS-DOS...",
+            "HIMEM is testing extended memory...done.",
+            "C:\\> PATH=C:\\DOS;C:\\WINDOWS",
+            "C:\\> SET TEMP=C:\\TEMP",
+            "C:\\> SMARTDRV.EXE /X",
+            " "
+        ];
+
+        const dosContainer = document.getElementById('dos-text');
+        const dosInputLine = document.getElementById('dos-input-line');
+        const dosType = document.getElementById('dos-type');
+        
+        window.onload = () => {
+            applyLanguage(currentLang);
+
+            let delay = 300;
+            dosBootLines.forEach((line) => {
+                setTimeout(() => {
+                    const el = document.createElement('div');
+                    el.innerHTML = line === " " ? "&nbsp;" : line;
+                    dosContainer.appendChild(el);
+                }, delay);
+                delay += 200 + Math.random() * 300;
+            });
+
+            setTimeout(() => {
+                dosInputLine.style.display = 'inline-block';
+                typeCommand("WIN", () => {
+                    setTimeout(triggerFlashAndBoot, 600);
+                });
+            }, delay + 300);
+        };
+
+        function typeCommand(text, callback) {
+            let i = 0;
+            function typeChar() {
+                if (i < text.length) {
+                    dosType.innerText += text.charAt(i);
+                    i++;
+                    setTimeout(typeChar, 100 + Math.random() * 100);
+                } else {
+                    if(callback) callback();
+                }
+            }
+            setTimeout(typeChar, 300);
+        }
+
+        function triggerFlashAndBoot() {
+            const flash = document.getElementById('screen-flash');
+            flash.style.opacity = 1;
+            
+            setTimeout(() => {
+                document.getElementById('dos-screen').style.display = 'none';
+                document.getElementById('win-desktop').style.display = 'block';
+                
+                flash.style.opacity = 0;
+
+                startClock();
+                setInterval(updateMonitorUptime, 1000);
+                setTimeout(updateSurveillanceFeed, 2000);
+
+                setTimeout(() => openWindow('w-notepad'), 800);
+                setTimeout(() => openWindow('w-monitor'), 2000);
+
+            }, 200);
+        }
+
+        /* =========================================================
+           阶段 2: Win9x OS Logic (Window Mgmt, Dragging & Touch)
+           ========================================================= */
+        
+        let zIndexCounter = 100;
+        let openWindows = new Set();
+        const windowsMeta = {
+            'w-notepad': { icon: '📝' },
+            'w-monitor': { icon: '📊' },
+            'w-terminal': { icon: 'C:\\' },
+            'w-manifesto': { icon: '📝' }
+        };
+
+        // 统一处理触控双击/双重点击
+        document.querySelectorAll('.desktop-icon').forEach(icon => {
+            let lastTapTime = 0;
+            icon.addEventListener('pointerdown', function(e) {
+                e.stopPropagation();
+                
+                document.querySelectorAll('.desktop-icon').forEach(i => i.classList.remove('selected'));
+                this.classList.add('selected');
+
+                const winId = this.dataset.window;
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTapTime;
+
+                // 判断双击 (500ms以内)
+                if (tapLength < 500 && tapLength > 0) {
+                    if(winId === 'lang-toggle') {
+                        toggleLanguage();
+                    } else {
+                        openWindow(winId);
+                    }
+                    e.preventDefault();
+                }
+                lastTapTime = currentTime;
+            });
+        });
+
+        // 点击桌面空白处取消图标选中
+        document.getElementById('win-desktop').addEventListener('pointerdown', function(e) {
+            if(!e.target.closest('.desktop-icon')) {
+                document.querySelectorAll('.desktop-icon').forEach(i => i.classList.remove('selected'));
+            }
+        });
+
+        function getTranslatedWindowTitle(id) {
+            const dict = i18n[currentLang];
+            if(id === 'w-notepad') return dict.doc_title;
+            if(id === 'w-monitor') return dict.mon_title;
+            if(id === 'w-terminal') return dict.term_title;
+            if(id === 'w-manifesto') return dict.manif_title;
+            return "Window";
+        }
+
+        function focusWindow(id) {
+            const win = document.getElementById(id);
+            if (!win) return;
+            zIndexCounter++;
+            win.style.zIndex = zIndexCounter;
+
+            document.querySelectorAll('.win-window').forEach(w => {
+                w.querySelector('.win-titlebar').classList.add('inactive');
+            });
+            win.querySelector('.win-titlebar').classList.remove('inactive');
+
+            document.querySelectorAll('.taskbar-item').forEach(btn => btn.classList.remove('active'));
+            const taskBtn = document.getElementById(`tb-${id}`);
+            if(taskBtn) taskBtn.classList.add('active');
+        }
+
+        function openWindow(id) {
+            const win = document.getElementById(id);
+            if(win.style.display !== 'flex') {
+                win.style.display = 'flex';
+                openWindows.add(id);
+                createTaskbarItem(id);
+            }
+            focusWindow(id);
+        }
+
+        function closeWindow(id) {
+            const win = document.getElementById(id);
+            win.style.display = 'none';
+            openWindows.delete(id);
+            const taskBtn = document.getElementById(`tb-${id}`);
+            if(taskBtn) taskBtn.remove();
+        }
+
+        function maximizeWindow(id) {
+            const win = document.getElementById(id);
+            if(win.dataset.maximized === "true") {
+                win.style.width = win.dataset.origW;
+                win.style.height = win.dataset.origH;
+                win.style.top = win.dataset.origTop;
+                win.style.left = win.dataset.origLeft;
+                win.dataset.maximized = "false";
+            } else {
+                win.dataset.origW = win.style.width;
+                win.dataset.origH = win.style.height;
+                win.dataset.origTop = win.style.top;
+                win.dataset.origLeft = win.style.left;
+                
+                win.style.top = '0';
+                win.style.left = '0';
+                win.style.width = '100vw';
+                win.style.height = 'calc(100vh - 30px)'; // 减去任务栏高度
+                win.dataset.maximized = "true";
+            }
+        }
+
+        function createTaskbarItem(id) {
+            const container = document.getElementById('taskbar-items');
+            if(document.getElementById(`tb-${id}`)) return;
+
+            const btn = document.createElement('div');
+            btn.id = `tb-${id}`;
+            btn.className = 'taskbar-item active';
+            btn.innerHTML = `<span style="font-size:10px">${windowsMeta[id].icon}</span> <span class="truncate">${getTranslatedWindowTitle(id)}</span>`;
+            btn.onclick = () => {
+                const win = document.getElementById(id);
+                if(win.style.display === 'none') {
+                    win.style.display = 'flex';
+                }
+                focusWindow(id);
+            };
+            container.appendChild(btn);
+        }
+
+        // --- Dragging Logic (Pointer Events for Touch+Mouse compatibility) ---
+        let isDragging = false;
+        let dragTarget = null;
+        let offsetX = 0, offsetY = 0;
+
+        function startDrag(e, id) {
+            if(e.target.classList.contains('win-btn')) return;
+            const win = document.getElementById(id);
+            if(win.dataset.maximized === "true") return;
+
+            isDragging = true;
+            dragTarget = win;
+            focusWindow(id);
+
+            const rect = win.getBoundingClientRect();
+            // 使用 clientX/Y，无论是触摸还是鼠标，pointerEvent 都支持它
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+
+            // 监听全局移动和抬起
+            document.addEventListener('pointermove', drag, { passive: false });
+            document.addEventListener('pointerup', stopDrag);
+            document.addEventListener('pointercancel', stopDrag);
+        }
+
+        function drag(e) {
+            if (!isDragging || !dragTarget) return;
+            e.preventDefault(); // 阻止移动端页面滚动
+            dragTarget.style.left = (e.clientX - offsetX) + 'px';
+            dragTarget.style.top = (e.clientY - offsetY) + 'px';
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            dragTarget = null;
+            document.removeEventListener('pointermove', drag);
+            document.removeEventListener('pointerup', stopDrag);
+            document.removeEventListener('pointercancel', stopDrag);
+        }
+
+        // 点击窗口任意区域聚焦
+        document.querySelectorAll('.win-window').forEach(win => {
+            win.addEventListener('pointerdown', () => focusWindow(win.id));
+        });
+
+        // --- Taskbar Clock ---
+        function startClock() {
+            const clockEl = document.getElementById('clock');
+            setInterval(() => {
+                const now = new Date();
+                let h = now.getHours();
+                let m = now.getMinutes();
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12;
+                h = h ? h : 12; 
+                m = m < 10 ? '0' + m : m;
+                clockEl.innerText = `${h}:${m} ${ampm}`;
+            }, 1000);
+        }
+
+        /* =========================================================
+           阶段 3: 业务逻辑 (Terminal & Monitor)
+           ========================================================= */
+
+        let seconds = 0;
+        function updateMonitorUptime() {
+            seconds++;
+            const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+            const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+            const s = String(seconds % 60).padStart(2, '0');
+            document.getElementById('uptime-counter').innerText = `${h}:${m}:${s}`;
+        }
+
+        function updateSurveillanceFeed() {
+            const feed = document.getElementById('surveillance-feed');
+            const line = document.createElement('div');
+            const dict = i18n[currentLang];
+            
+            const isBlocked = Math.random() > 0.4;
+            const term = feedTerms[Math.floor(Math.random() * feedTerms.length)];
+            
+            line.innerHTML = `${dict.log_prefix} ${term} .. <span style="color:${isBlocked ? '#00ff00' : '#ff0000'}">${isBlocked ? dict.log_ok : dict.log_denied}</span>`;
+            line.style.marginBottom = "2px";
+            
+            feed.appendChild(line);
+            if(feed.children.length > 7) feed.removeChild(feed.firstChild);
+            
+            setTimeout(updateSurveillanceFeed, 500 + Math.random() * 1000);
+        }
+
+        // -- Terminal Override Logic --
+        const termOutput = document.getElementById('terminal-output');
+        const termInput = document.getElementById('terminal-input');
+
+        function printToTerminal(text) {
+            const line = document.createElement('div');
+            line.innerHTML = text;
+            line.style.marginBottom = "5px";
+            termOutput.appendChild(line);
+            
+            const container = document.getElementById('term-container');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        termInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const command = this.value.trim().toLowerCase();
+                if (command) {
+                    printToTerminal(`C:\\WINDOWS>${this.value}`);
+                    processCommand(command);
+                    this.value = '';
+                }
+            }
+        });
+
+        function processCommand(cmd) {
+            const dict = i18n[currentLang];
+            if(cmd === 'help') {
+                printToTerminal(dict.term_help);
+            } else if (cmd === 'cls') {
+                termOutput.innerHTML = '';
+            } else if (cmd === 'ver') {
+                printToTerminal(dict.term_ver);
+            } else if (cmd === 'override') {
+                triggerOverride();
+            } else {
+                printToTerminal(dict.term_bad);
+            }
+        }
+
+        function triggerOverride() {
+            const dict = i18n[currentLang];
+            if(isOverriden) {
+                printToTerminal(dict.term_ovr_done);
+                return;
+            }
+            printToTerminal(dict.term_ovr1);
+            printToTerminal(dict.term_ovr2);
+            
+            setTimeout(() => {
+                printToTerminal(`<span style='color: #00ff41;'>${dict.term_ovr3}</span>`);
+                
+                isOverriden = true;
+                
+                applyLanguage(currentLang);
+                
+                document.getElementById('monitor-status').className = "text-black bg-[#00ff41] inline-block px-1 mb-2 font-bold w-max";
+                document.getElementById('v-censor').className = "text-[#00ff41]";
+
+                // 自由宣言弹出时间略微延迟，确保终端先看完结果
+                setTimeout(() => {
+                    openWindow('w-manifesto');
+                }, 800);
+
+            }, 1500);
+        }
+
+    </script>
+</body>
+
+</html>
